@@ -11,7 +11,7 @@ import SwiftUI
 
 struct LocalConstants {
         
-    static let minCoverHeight: CGFloat = 300
+    static let minCoverHeight: CGFloat = 275
     static let startingPeekHeight: CGFloat = 75
     static let slidingHandleHeight: CGFloat = 30
     
@@ -19,9 +19,13 @@ struct LocalConstants {
     static let slidingVisibleHandleWidth: CGFloat = 80
     
     static let minimizePeekThreshold: CGFloat = 10
-    static let showFullCoverThreshold: CGFloat = 75
+    static let showFullCoverThreshold: CGFloat = 140
     
-    static let lightColor = Color(red: 1, green: 248/255, blue: 223/255)
+    static let lightColor           = Color(red: 1, green: 248/255, blue: 223/255)
+    static let darkColor            = Color(red: 0, green: 0, blue: 0)
+    static let secondaryLightColor  = Color(red: 0, green: 0, blue: 0)
+    static let secondaryDarkColor   = Color(red: 15/255, green: 15/255, blue: 15/255)
+    
     static let accentColor = Color(red: 190 / 255, green: 72 / 255, blue: 22 / 255)
     
     static let cornerRadius: CGFloat = 40
@@ -35,6 +39,12 @@ enum PeekState {
 }
 
 struct SlidingModal<C1:View, C2:View>: View {
+    
+    @Environment(\.colorScheme) var colorScheme
+    
+    let softImpact = UIImpactFeedbackGenerator(style: .soft)
+    let lightImpact = UIImpactFeedbackGenerator(style: .light)
+    let rigidImpact = UIImpactFeedbackGenerator(style: .rigid)
     
     private let coordinateSpaceName = "SlidingModalCoordinateSpaceName"
     
@@ -166,12 +176,28 @@ struct SlidingModal<C1:View, C2:View>: View {
                     }
                 }
             }
-            .onEnded { vaue in
+            .onEnded { value in
                 inDismissGesture = false
+                
+                let velocity = value.velocity.height / 14
+                let maximum = peekState != .full ? LocalConstants.minCoverHeight : 0
+                let proposedHeight = value.location.y + velocity
+
+                withAnimation {
+                    makeHeight(in: geo, dragPosition: max( proposedHeight, maximum ))
+                }
             }
     }
 
 //    MARK: Struct Methods
+    private var baseColor: Color {
+        colorScheme == .dark ? LocalConstants.secondaryDarkColor : LocalConstants.lightColor
+    }
+    
+    private var secondaryColor: Color {
+        colorScheme == .dark ? LocalConstants.darkColor : LocalConstants.secondaryLightColor
+    }
+    
     private func makeHeight(in geo: GeometryProxy, dragPosition: CGFloat) {
         if peekState == .full { return }
         
@@ -181,13 +207,19 @@ struct SlidingModal<C1:View, C2:View>: View {
         let proposedHeight = geo.size.height - abs(dragPosition)
         let newHeight = min(max( proposedHeight, minimum), maximum)
         
+        if proposedHeight > newHeight {
+            softImpact.impactOccurred(intensity: (proposedHeight - newHeight) / LocalConstants.showFullCoverThreshold, at: .init(x: 0, y: newHeight))
+        }
+        
         if proposedHeight - newHeight > LocalConstants.showFullCoverThreshold {
+            if self.peekState != .full { rigidImpact.impactOccurred(at: .zero) }
             self.peekState = .full
             self.height = geo.size.height
             return
         }
         
         if proposedHeight <= LocalConstants.startingPeekHeight + LocalConstants.minimizePeekThreshold {
+            if self.peekState != .minimized { rigidImpact.impactOccurred(at: .zero) }
             self.peekState = .minimized
             self.height = LocalConstants.startingPeekHeight
             return
@@ -197,15 +229,20 @@ struct SlidingModal<C1:View, C2:View>: View {
         self.height = newHeight
     }
     
+    private func makeShrinkingWidth(in geo: GeometryProxy) -> CGFloat {
+        (self.height - LocalConstants.startingPeekHeight) / 45
+    }
+    
 //    MARK: ViewBuilder
     @ViewBuilder
     private func makeBackground(in geo: GeometryProxy) -> some View {
         VStack(spacing: 0) {
             Rectangle()
-                .foregroundStyle(.black)
+                .foregroundStyle(secondaryColor)
                 .frame(height: LocalConstants.cornerRadius)
                 .clipShape(PeekMask())
                 .offset(y: 0.8)
+                .frame(width: geo.size.width - makeShrinkingWidth(in: geo) )
             
             VStack {
                 Spacer()
@@ -225,7 +262,7 @@ struct SlidingModal<C1:View, C2:View>: View {
             .ignoresSafeArea()
             .frame(width: geo.size.width, height: self.height)
             .foregroundStyle( LocalConstants.lightColor )
-            .background(.black)
+            .background( secondaryColor )
             .overlay(makeToggle(in: geo), alignment: .top)
         }
     }
@@ -241,9 +278,9 @@ struct SlidingModal<C1:View, C2:View>: View {
             
             Spacer()
         }
-        .frame(width: geo.size.width)
-        .foregroundStyle( .black )
-        .background( LocalConstants.lightColor )
+        .frame(width: geo.size.width - makeShrinkingWidth(in: geo))
+        .background( baseColor )
+        .clipShape(RoundedRectangle(cornerRadius: LocalConstants.cornerRadius))
         .ignoresSafeArea()
     }
     
@@ -251,11 +288,10 @@ struct SlidingModal<C1:View, C2:View>: View {
     private func makeToggle(in geo: GeometryProxy) -> some View {
         ZStack {
             Rectangle()
-                .foregroundStyle(LocalConstants.lightColor)
+                .foregroundStyle( baseColor )
             
             if peekState != .full {
                 Image(systemName: "chevron.up")
-                    .foregroundStyle(.black)
             }
         }
         .clipShape(PeekToggleMask())
@@ -273,6 +309,7 @@ struct SlidingModal<C1:View, C2:View>: View {
                 
                 ZStack(alignment: .top) {
                     Rectangle()
+                        .foregroundStyle(secondaryColor)
                         .ignoresSafeArea()
                     
                     makeForeground(in: geo)
